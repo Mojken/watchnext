@@ -101,6 +101,7 @@ mkShell {
   buildInputs = [
     htop
     vlc
+    pylint
     (python3.withPackages python-requirements)
     git
   ];

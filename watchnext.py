@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 
-import time
-import vlc
+from typing import Optional
+from decimal import Decimal
+from time import sleep
 import json
 import os
 
-from typing import Optional
-from decimal import Decimal
+import vlc
 
 from mpris_server.adapters import MprisAdapter, Track, PlayState
 from mpris_server.events import EventAdapter
@@ -15,10 +15,14 @@ from mpris_server.server import Server
 BASE_DIR = "/anime"
 
 class Player(MprisAdapter):
-    def __init__(self, watchnext):
-        self.watchnext = watchnext
+    def __init__(self, watchnext_ref):
+        super(MprisAdapter, self).__init__()
+        self.watchnext = watchnext_ref
         self.instance = vlc.Instance()
         self.mediaplayer = self.instance.media_player_new()
+
+        self.name = ""
+        self.media = None
 
     def set_file(self, path, name):
         self.name = name
@@ -27,7 +31,10 @@ class Player(MprisAdapter):
         self.media.parse()
 
     def get_tracks(self):
-        return (self.mediaplayer.audio_get_track_description(), self.mediaplayer.video_get_spu_description())
+        return (
+            self.mediaplayer.audio_get_track_description(),
+            self.mediaplayer.video_get_spu_description()
+        )
 
     def set_tracks(self, audio, subs):
         self.mediaplayer.audio_set_track(audio)
@@ -48,14 +55,18 @@ class Player(MprisAdapter):
 
     def next(self):
         self.watchnext.next()
+        self.play()
+        self.event_handler.on_title()
 
     def previous(self):
         self.watchnext.previous()
+        self.play()
+        self.event_handler.on_title()
 
     def pause(self):
         print("pause")
         self.mediaplayer.pause()
-        time.sleep(0.1)
+        sleep(0.1)
         self.watchnext.event_handler.on_playpause()
 
     def resume(self):
@@ -67,13 +78,13 @@ class Player(MprisAdapter):
         print(f"stopping at {progress}")
         self.watchnext.evaluate_progress(progress)
         self.mediaplayer.stop()
-        time.sleep(0.1)
+        sleep(0.1)
         self.watchnext.event_handler.on_ended()
 
     def play(self):
         print("play")
         self.mediaplayer.play()
-        time.sleep(0.1)
+        sleep(0.1)
         self.watchnext.event_handler.on_playpause()
 
     def get_playstate(self) -> PlayState:
@@ -91,17 +102,13 @@ class Player(MprisAdapter):
         print(f"Unhandled State {state}")
         return PlayState.STOPPED
 
-    def seek(self, ts: int, track_id: Optional[str] = None):
-        modtime = int(ts / 1000)
-        print(f"seek: {ts} ({track_id})")
+    def seek(self, time: int, track_id: Optional[str] = None):
+        modtime = int(time / 1000)
+        print(f"seek: {time} ({track_id})")
         self.mediaplayer.set_time(modtime)
 
-        time.sleep(0.1)
+        sleep(0.1)
         self.watchnext.event_handler.on_seek(modtime * 1000)
-
-    def open_uri(self, uri: str):
-        print("Unimplemented: open_uri")
-        pass # TODO: implement
 
     def is_repeating(self) -> bool:
         print("is_repeating")
@@ -111,29 +118,9 @@ class Player(MprisAdapter):
         print("is_playlist")
         return True
 
-    def set_repeating(self, val: bool):
-        print("Unimplemented: set_repeating")
-        pass # TODO: implement
-
-    def set_loop_status(self, val: str):
-        print("Unimplemented: set_loop_status")
-        pass # TODO: implement
-
     def get_rate(self) -> Decimal:
         print("get_rate")
         return 1.0
-
-    def set_rate(self, val: Decimal):
-        print("Unimplemented: set_rate")
-        pass # TODO: implement
-
-    def set_minimum_rate(self, val: Decimal):
-        print("Unimplemented: set_minimum_rate")
-        pass # TODO: implement
-
-    def set_maximum_rate(self, val: Decimal):
-        print("Unimplemented: set_maximum_rate")
-        pass # TODO: implement
 
     def get_minimum_rate(self) -> Decimal:
         print("get_minimum_rate")
@@ -147,10 +134,6 @@ class Player(MprisAdapter):
         print("get_shuffle")
         return False
 
-    def set_shuffle(self, val: bool):
-        print("Unimplemented: set_shuffle")
-        pass # TODO: implement
-
     def get_volume(self) -> Decimal:
         ret = vlc.libvlc_audio_get_volume(self.mediaplayer)
         print(f"get_volume: {ret}%")
@@ -160,7 +143,7 @@ class Player(MprisAdapter):
         val = int(val * 150)
         print(f"set_volume: {val}%")
         vlc.libvlc_audio_set_volume(self.mediaplayer, val)
-        time.sleep(0.1)
+        sleep(0.1)
         self.watchnext.event_handler.on_volume()
 
     def is_mute(self) -> bool:
@@ -171,7 +154,6 @@ class Player(MprisAdapter):
     def set_mute(self, val: bool):
         print(f"set_mute: {val}")
         vlc.libvlc_audio_set_mute(self.mediaplayer, val)
-        pass
 
     def can_go_next(self) -> bool:
         print("can_go_next")
@@ -199,15 +181,6 @@ class Player(MprisAdapter):
 
     def get_stream_title(self) -> str:
         return self.name
-        pass # TODO: implement
-
-    def get_previous_track(self) -> Track:
-        print("Unimplemented: get_previous_track")
-        pass # TODO: implement
-
-    def get_next_track(self) -> Track:
-        print("Unimplemented: get_next_track")
-        pass # TODO: implement
 
     def __getattr__(self, name):
         def method(*args):
@@ -222,7 +195,7 @@ class Watchnext():
     def __init__(self):
         self.json_file_path = f"{os.path.expanduser('~')}/.config/watchnext/"
         try:
-            with open(f"{self.json_file_path}/config", "r") as json_file:
+            with open(f"{self.json_file_path}/config", "rt", encoding="utf-8") as json_file:
                 self.json_data = json.load(json_file)
 
         except FileNotFoundError:
@@ -230,6 +203,11 @@ class Watchnext():
 
         self.select()
         self.save()
+
+        self.player = Player(self)
+        self.mpris = Server("Watchnext", adapter=self.player)
+        event_handler = EventAdapter(root=self.mpris.root, player=self.mpris.player)
+        self.player.register_event_handler(event_handler)
 
     def generate_config_file(self):
         print("Generating new config file...")
@@ -241,21 +219,21 @@ class Watchnext():
             "series": {},
             "ignored_directories": [],
         }
-        with open(f"{self.json_file_path}/config", "x") as json_file:
+        with open(f"{self.json_file_path}/config", "xt", encoding="utf-8") as json_file:
             json.dump(self.json_data, json_file, indent=2)
 
-    def get_episodes(path):
+    def get_episodes(self, path):
         # Recurse?
         with os.scandir(path) as iterator:
             return sorted([entry.path for entry in iterator if entry.is_file()])
 
     def add_new_series(self):
-        self.last_ignored = self.json_data["ignored_directories"]
+        last_ignored = self.json_data["ignored_directories"]
         self.json_data["ignored_directories"] = []
 
-        new_dirs = self.scan_for_new_dirs(self.json_data["base_dir"])
+        new_dirs = self.scan_for_new_dirs(self.json_data["base_dir"], last_ignored)
 
-        if new_dirs != []:
+        if new_dirs:
             print(" -- New Directories! --")
             for entry in new_dirs:
                 while True:
@@ -263,21 +241,24 @@ class Watchnext():
                     if air == "I":
                         self.json_data["ignored_directories"].append(entry)
                         break
-                    elif air == "A":
+                    if air == "A":
                         name = input("Name: ")
                         self.json_data["series"][name] = {"path": entry, "seen": 0, "tracks": None}
                         break
-                    elif air == 'R':
+                    if air == 'R':
                         self.json_data["ignored_directories"].append(entry)
-                        new_dirs += self.scan_for_new_dirs(entry)
+                        new_dirs += self.scan_for_new_dirs(entry, last_ignored)
                         break
 
-    def scan_for_new_dirs(self, path):
+    def scan_for_new_dirs(self, path, ignore):
         new_dirs = []
         with os.scandir(path) as iterator:
             for entry in iterator:
-                if not entry.name.startswith('.') and entry.is_dir() and entry.path not in [self.json_data["series"][show]["path"] for show in self.json_data["series"]]:
-                    if entry.path in self.last_ignored:
+                if (not entry.name.startswith('.')
+                    and entry.is_dir()
+                    and entry.path not in
+                    [self.json_data["series"][show]["path"] for show in self.json_data["series"]]):
+                    if entry.path in ignore:
                         self.json_data["ignored_directories"].append(entry.path)
                     else:
                         new_dirs.append(entry.path)
@@ -287,12 +268,12 @@ class Watchnext():
         self.add_new_series()
         print("Series: ")
         tmp_series_map = []
-        for n, series in enumerate(sorted(self.json_data["series"])):
+        for i, series in enumerate(sorted(self.json_data["series"])):
             path = self.json_data["series"][series]["path"]
-            episodes = Watchnext.get_episodes(path)
+            episodes = self.get_episodes(path)
             try:
                 index = self.json_data["series"][series]["seen"]
-                print(f"  {n+1}: {series} - E{index+1}")
+                print(f"  {i+1}: {series} - E{index+1}")
                 tmp_series_map.append((series, index, episodes))
             except IndexError:
                 continue
@@ -320,33 +301,25 @@ class Watchnext():
 
             except KeyboardInterrupt:
                 return
-            except Exception as e:
+            except Exception as err:
                 print("Error: ")
-                print(e)
+                print(err)
 
     def evaluate_progress(self, progress):
         if progress > 0.9:
             self.json_data["series"][self.series]["seen"] += 1
 
     def next(self):
-        self.index += 1;
-        self.json_data["series"][self.series]["seen"] += 1;
+        self.index += 1
+        self.json_data["series"][self.series]["seen"] += 1
         self.player.set_file(self.episodes[self.index], f"{self.series} - E{self.index+1}")
-        self.player.play()
-        self.event_handler.on_title()
 
     def previous(self):
-        self.index -= 1;
-        self.json_data["series"][self.series]["seen"] -= 1;
+        self.index -= 1
+        self.json_data["series"][self.series]["seen"] -= 1
         self.player.set_file(self.episodes[self.index], f"{self.series} - E{self.index+1}")
-        self.player.play()
-        self.event_handler.on_title()
 
-    def start(self, series = None):
-        self.player = Player(self)
-        self.mpris = Server("Watchnext", adapter=self.player)
-        self.event_handler = EventAdapter(root=self.mpris.root, player=self.mpris.player)
-
+    def start(self):
         self.player.set_file(self.episodes[self.index], f"{self.series} - E{self.index+1}")
 
         self.player.mediaplayer.toggle_fullscreen()
@@ -356,10 +329,11 @@ class Watchnext():
         self.player.play()
         while self.player.mediaplayer.get_state() != vlc.State.Playing:
             pass
-        time.sleep(0.1)
+        sleep(0.1)
         self.player.pause()
 
-        if "tracks" not in self.json_data["series"][self.series] or self.json_data["series"][self.series]["tracks"] is None:
+        if ("tracks" not in self.json_data["series"][self.series]
+            or self.json_data["series"][self.series]["tracks"] is None):
             audios, subss = self.player.get_tracks()
             print("Audio tracks:")
             for audio in audios:
@@ -379,7 +353,7 @@ class Watchnext():
         self.mpris.loop()
 
     def save(self):
-        with open(f"{self.json_file_path}/config", "w") as json_file:
+        with open(f"{self.json_file_path}/config", "wt", encoding="utf-8") as json_file:
             json.dump(self.json_data, json_file, indent=2)
 
 watchnext = Watchnext()
