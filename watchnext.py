@@ -23,6 +23,10 @@ class Player(MprisAdapter):
 
         self.name = ""
         self.media = None
+        self.event_handler = None
+
+    def register_event_handler(self, event_handler):
+        self.event_handler = event_handler
 
     def set_file(self, path, name):
         self.name = name
@@ -67,7 +71,7 @@ class Player(MprisAdapter):
         print("pause")
         self.mediaplayer.pause()
         sleep(0.1)
-        self.watchnext.event_handler.on_playpause()
+        self.event_handler.on_playpause()
 
     def resume(self):
         print("resume")
@@ -79,13 +83,13 @@ class Player(MprisAdapter):
         self.watchnext.evaluate_progress(progress)
         self.mediaplayer.stop()
         sleep(0.1)
-        self.watchnext.event_handler.on_ended()
+        self.event_handler.on_ended()
 
     def play(self):
         print("play")
         self.mediaplayer.play()
         sleep(0.1)
-        self.watchnext.event_handler.on_playpause()
+        self.event_handler.on_playpause()
 
     def get_playstate(self) -> PlayState:
         state = self.mediaplayer.get_state()
@@ -97,7 +101,7 @@ class Player(MprisAdapter):
         if state == vlc.State.Stopped:
             return PlayState.STOPPED
         if state == vlc.State.Ended:
-            self.watchnext.event_handler.on_ended()
+            self.event_handler.on_ended()
             return PlayState.STOPPED
         print(f"Unhandled State {state}")
         return PlayState.STOPPED
@@ -108,7 +112,7 @@ class Player(MprisAdapter):
         self.mediaplayer.set_time(modtime)
 
         sleep(0.1)
-        self.watchnext.event_handler.on_seek(modtime * 1000)
+        self.event_handler.on_seek(modtime * 1000)
 
     def is_repeating(self) -> bool:
         print("is_repeating")
@@ -144,7 +148,7 @@ class Player(MprisAdapter):
         print(f"set_volume: {val}%")
         vlc.libvlc_audio_set_volume(self.mediaplayer, val)
         sleep(0.1)
-        self.watchnext.event_handler.on_volume()
+        self.event_handler.on_volume()
 
     def is_mute(self) -> bool:
         ret = bool(vlc.libvlc_audio_get_mute(self.mediaplayer))
