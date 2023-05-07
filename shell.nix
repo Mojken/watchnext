@@ -5,6 +5,8 @@ with pkgs;
 let
   python-requirements = ps: with ps; [
     python-vlc
+    pygobject3
+    dbus-python
     (
       buildPythonPackage rec {
         pname = "mpris_server";
@@ -83,7 +85,6 @@ let
               };
             }
           )
-          pygobject3
           pydbus
         ];
 
@@ -99,9 +100,12 @@ let
 in
 mkShell {
   buildInputs = [
+    man
     htop
     vlc
     pylint
+    gtk3
+    gobject-introspection
     (python3.withPackages python-requirements)
     git
   ];
