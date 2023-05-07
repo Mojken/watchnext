@@ -1,0 +1,10 @@
+#+TITLE: Watchnext
+
+* Watchnext
+A thin wrapper around vlc for keeping track of series. Give it a directory with series and it will discover them, track how many episodes you've seen, and let you watch the next one.
+Designed to be used with KDEConnect as a remote, but other mpris-controllers work just as well.
+It does not currently listen to any other input however.
+* Useage
+Running =watchnext.py= for the first time will prompt you for a directory to scan and create the file =~/.config/watchnext/config=.
+* License
+=watchnext= is released under the AGPLv3, see =LICENSE=.
