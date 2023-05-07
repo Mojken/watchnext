@@ -105,16 +105,3 @@ mkShell {
     git
   ];
 }
-  #(
-  #buildPythonPackage rec {
-  #pname = "pycairo";
-  #version = "1.23.0";
-  #src = fetchPypi {
-  #inherit pname version;
-  #hash = "sha256-m2GsgYcjrcBDZzATF+sugUqDUi8Hu9H0Ca8NraRjxEw=";
-  #};
-  #nativeBuildInputs = [
-  #cairo
-  #];
-  #}
-  #)

@@ -1,1 +1,3 @@
 python-vlc
+mpris_server
+
