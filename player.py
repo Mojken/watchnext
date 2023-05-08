@@ -92,6 +92,7 @@ class Player(MprisAdapter):
         )
 
     def set_tracks(self, audio, subs):
+        print(f"set_tracks {audio} {subs}")
         self.mediaplayer.audio_set_track(audio)
         self.mediaplayer.video_set_spu(subs)
 
@@ -110,12 +111,10 @@ class Player(MprisAdapter):
 
     def next(self):
         self.watchnext.next()
-        self.play()
         self.event_handler.on_title()
 
     def previous(self):
         self.watchnext.previous()
-        self.play()
         self.event_handler.on_title()
 
     def pause(self):
@@ -155,7 +154,6 @@ class Player(MprisAdapter):
         if state == vlc.State.Stopped:
             return PlayState.STOPPED
         if state == vlc.State.Ended:
-            self.event_handler.on_ended()
             return PlayState.STOPPED
         print(f"Unhandled State {state}")
         return PlayState.STOPPED
