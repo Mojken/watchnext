@@ -108,5 +108,9 @@ mkShell {
     gobject-introspection
     (python3.withPackages python-requirements)
     git
+    rustc
+    cargo
+    pkg-config
+    openssl
   ];
 }
