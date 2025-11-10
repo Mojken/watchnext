@@ -129,14 +129,18 @@ class Watchnext():
 
     def next(self):
         self.index += 1
-        self.json_data["series"][self.series]["seen"] += 1
-        self.save()
+        if (self.series):
+            self.json_data["series"][self.series]["seen"] += 1
+            self.save()
 
-        self.player.set_file(self.episodes[self.index], f"{self.series} - E{self.index+1}")
-        self.player.play()
+            self.player.set_file(self.episodes[self.index], f"{self.series} - E{self.index+1}")
+            self.player.play()
 
-        audio, subs = self.json_data["series"][self.series]["tracks"]
-        self.player.set_tracks(audio, subs)
+            audio, subs = self.json_data["series"][self.series]["tracks"]
+            self.player.set_tracks(audio, subs)
+        else:
+            self.series = self.json_data["series"][self.series]
+            self.player.set_file(self.episodes[self.index], f"{self.series} - E{self.index+1}")
 
     def previous(self):
         self.index -= 1

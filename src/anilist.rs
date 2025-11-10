@@ -2,7 +2,9 @@ use serde::Deserialize;
 use serde_json::json;
 use std::fs::File;
 use std::io::BufReader;
+use std::io::Write;
 use std::error::Error;
+use std::collections::BTreeMap;
 
 const QUERY: &str = "
 query ($username: String, $page: Int) {
@@ -26,6 +28,8 @@ query ($username: String, $page: Int) {
           day
         }
         episodes
+        id
+        format
       }
       status
       progress
@@ -36,7 +40,8 @@ query ($username: String, $page: Int) {
 
 #[derive(Deserialize)]
 struct AnilistDataWrapper {
-    data: AnilistPageWrapper,
+    data: Option<AnilistPageWrapper>,
+    errors: Option<Vec<ErrorResponse>>,
 }
 
 #[derive(Deserialize)]
@@ -53,96 +58,172 @@ pub struct AnilistData {
     page_info: PageInfo,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 struct PageInfo {
     #[serde(rename(deserialize = "hasNextPage"))]
     has_next_page: bool,
     #[serde(rename(deserialize = "lastPage"))]
-    last_page: i8,
-    total: i8,
+    last_page: u16,
+    total: u16,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug, Clone)]
 struct Date {
-    day: Option<i8>,
-    month: Option<i8>,
-    year: Option<i16>,
+    day: Option<u8>,
+    month: Option<u8>,
+    year: Option<u16>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct Title {
     pub english: Option<String>,
     native: String,
     pub romaji: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug, PartialEq, Clone)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum MediaFormat {
+    Tv,
+    TvShort,
+    Movie,
+    Special,
+    Ova,
+    Ona,
+    Music,
+    Manga,
+    Novel,
+    OneShot,
+}
+
+#[derive(Deserialize, Debug, PartialEq, Clone)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum MediaStatus {
+    Finished,
+    Releasing,
+    NotYetReleased,
+}
+
+#[derive(Deserialize, Debug, Clone)]
 pub struct Media {
     #[serde(rename(deserialize = "endDate"))]
     anilist_end_date: Date,
     #[serde(skip)]
-    end_date: chrono::NaiveDate,
-    pub episodes: Option<i8>,
-    pub status: String,
+    pub end_date: Option<chrono::NaiveDate>,
+    pub episodes: Option<u16>,
+    pub status: MediaStatus,
     pub title: Title,
+    pub id: u32,
+    pub format: MediaFormat,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct MediaProgress {
     pub media: Media,
-    pub progress: i8,
+    pub progress: u16,
     pub status: String,
 }
 
-pub fn fetch_from_anilist_spoofed() -> Result<AnilistData, Box<dyn Error>> {
+#[derive(Deserialize, Debug)]
+pub struct ErrorResponse {
+    message: String,
+    status: u16,
+}
+
+
+pub fn fetch_from_anilist_spoofed() -> Result<BTreeMap<u32, MediaProgress>, Box<dyn Error>> {
     let file = File::open("test.json")?;
-    let ret : AnilistDataWrapper = serde_json::from_reader(BufReader::new(file))?;
-    Ok(ret.data.page)
+    let mut data: AnilistPageWrapper = serde_json::from_reader::<BufReader<File>, AnilistDataWrapper>(BufReader::new(file)).unwrap().data.unwrap();
+    clean_anilist_data(&mut data);
+    Ok(data.page.media_list.into_iter().map(|listing| (listing.media.id, listing)).collect())
 }
 
-fn fetch_from_anilist() -> Result<AnilistData, Box<dyn Error>> {
-    let client = reqwest::blocking::Client::new();
-    // Define query and variables
-    let json = json!({"query": QUERY, "variables": {"username": "Mojken", "page": 0}});
-    // Make HTTP post request
-    let resp = client.post("https://graphql.anilist.co/")
-                     .header("Content-Type", "application/json")
-                     .header("Accept", "application/json")
-                     .body(json.to_string())
-                     .send()
-                     .unwrap()
-                     .text();
+pub async fn fetch_from_anilist() -> Result<BTreeMap<u32, MediaProgress>, Box<dyn Error>> {
+    //return fetch_from_anilist_spoofed();
 
-    let ret : AnilistDataWrapper = serde_json::from_str(&resp.unwrap())?;
-    Ok(ret.data.page)
+    let client = reqwest::Client::new();
+    let mut ret: BTreeMap<u32, MediaProgress> = BTreeMap::new();
+    let mut page = 0;
+
+    loop {
+        // Define query and variables
+        let json = json!({"query": QUERY, "variables": {"username": "Mojken", "page": page}});
+        // Make HTTP post request
+        let resp = client.post("https://graphql.anilist.co/")
+                         .header("Content-Type", "application/json")
+                         .header("Accept", "application/json")
+                         .body(json.to_string())
+                         .send()
+                         .await
+                         .unwrap()
+                         .text()
+                         .await?;
+
+        let mut data: AnilistPageWrapper = match serde_json::from_str::<AnilistDataWrapper>(&resp) {
+            Ok(data) => match data.errors {
+                Some(ref errors) => {
+                    let error: &ErrorResponse = errors.first().unwrap();
+                    return Err(format!("Anilist returned error code {}: {}", error.status, error.message).into());
+                }
+                None => {
+                    data.data.unwrap()
+                }
+            },
+            Err(e) => {
+                return Err(format!("Failed to parse anilist response! Error was: {}  Data was: {}", e, resp).into());
+            }
+        };
+
+        clean_anilist_data(&mut data);
+        ret.append(&mut data.page.media_list.into_iter().map(|listing| (listing.media.id, listing)).collect());
+
+        if !data.page.page_info.has_next_page {
+            return Ok(ret)
+        }
+        page += 1;
+    }
 }
 
-fn parse_anilist() -> Result<(), Box<dyn Error>>{
-    let data = fetch_from_anilist_spoofed()?;
+fn clean_anilist_data(data: &mut AnilistPageWrapper) {
+    for media_progress in &mut data.page.media_list {
+        match media_progress.media.anilist_end_date.year {
+            Some(year) => {
+                media_progress.media.end_date = Some(chrono::NaiveDate::from_ymd_opt(
+                    year.into(),
+                    media_progress.media.anilist_end_date.month.unwrap().try_into().unwrap(),
+                    media_progress.media.anilist_end_date.day.unwrap().try_into().unwrap()
+                ).expect("Anilist should only serve real dates"));
+            },
+            None => {
+                media_progress.media.end_date = None;
+            },
+        }
+    }
+}
 
-    for progress in data.media_list {
+async fn parse_anilist() -> Result<(), Box<dyn Error>>{
+    let media_list = fetch_from_anilist().await?;
+
+    println!("{:?}", media_list);
+    for (_, progress) in media_list {
         match progress.status.as_ref() {
             "CURRENT" =>
-                match progress.media.status.as_ref() {
-                    "FINISHED" =>
+                match progress.media.status {
+                    MediaStatus::Finished =>
                         println!("Watching: Episode {} of {} (release {:?})", progress.progress, progress.media.title.romaji, progress.media.anilist_end_date.year.ok_or("TBA").unwrap()),
-                    "RELEASING" =>
+                    MediaStatus::Releasing =>
                         println!("Watching: Episode {} of {} (ongoing)", progress.progress, progress.media.title.romaji),
-                    "NOT_YET_RELEASED" =>
+                    MediaStatus::NotYetReleased =>
                         println!("Somehow watching something unreleased: Episode {} of {}", progress.progress, progress.media.title.romaji),
-                    _ =>
-                        println!("Unknown release status"),
                 }
             "PLANNING" =>
-                match progress.media.status.as_ref() {
-                    "FINISHED" =>
+                match progress.media.status {
+                    MediaStatus::Finished =>
                         println!("Planning: {} (release {:?})", progress.media.title.romaji, progress.media.anilist_end_date.year.ok_or("TBA").unwrap()),
-                    "RELEASING" =>
+                    MediaStatus::Releasing =>
                         println!("Planning: {} (ongoing)", progress.media.title.romaji),
-                    "NOT_YET_RELEASED" =>
+                    MediaStatus::NotYetReleased =>
                         println!("Unreleased: {}", progress.media.title.romaji),
-                    _ =>
-                        println!("Unknown release status"),
                 }
             _ =>
                 println!(""),
